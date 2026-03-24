@@ -1,0 +1,5 @@
+let p1 = {x=12, y=34},
+let getX = \point:{x=Int}. point.x,
+let getY = \point:{y=Int}. point.y,
+let add = \a:Int.\b:Int. a,
+add 1 (getX p1)

@@ -1,0 +1,24 @@
+expr
+  = "(" expr [ "," expr ] ")"
+  | "[" expr { "," expr } "]"
+  | "{" var "=" expr { "," var "=" expr } "}"
+  | "True"
+  | "False"
+  | "Unit"
+  | "let" var "=" expr ","
+  | var
+  | "if" expr "then" expr "else" expr
+  | "\" var ":" tyDecl "." expr
+  | expr "." number
+  | expr "." var
+  | expr expr
+
+tyDecl
+  = "Bool"
+  | "Unit"
+  | "Top"
+  | "(" tyDecl [ "," tyDecl ] ")"
+  | "[" tyDecl { "," tyDecl } "]"
+  | "{" [ var "=" tyDecl ] { "," var "=" tyDecl } "}"
+  | tyDecl "->" tyDecl
+  | "?"
