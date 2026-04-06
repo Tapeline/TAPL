@@ -1,5 +1,2 @@
-let p1 = {x=12, y=34},
-let getX = \point:{x=Int}. point.x,
-let getY = \point:{y=Int}. point.y,
-let add = \a:Int.\b:Int. a,
-add 1 (getX p1)
+let fix = \f: Top -> Top -> Top -> Top. ( \ x: Top -> Top -> Top . f ( \ y: Top . x x y )) ( \ x: Top -> Top -> Top . f ( \ y: Top . x x y )),
+1

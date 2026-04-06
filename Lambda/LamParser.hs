@@ -148,8 +148,10 @@ pPrimary =
 pPairOrExpr = do
   word "("
   item1 <- pExpr
-  ws
-  (EPair item1 <$> (word "," *> pExpr)) <|> return item1
+  word ")"
+  return item1
+  --ws
+  --(EPair item1 <$> (word "," *> pExpr)) <|> return item1
   -- (item1, item2) -- pair or just (expr) -- expr
 
 pTuple = do
