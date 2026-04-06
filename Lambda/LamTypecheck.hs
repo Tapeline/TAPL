@@ -77,6 +77,52 @@ areEquivalent ctx tyS tyT = eqv [] ctx tyS tyT where
       markSeen = (tyS, tyT) : seen
 
 
+-- | Is S <: T?
+-- isSubtype ctx S T
+isSubtype ctx tyS tyT = subtype [] ctx tyS tyT where
+  subtype seen ctx tyS tyT =
+    elem (tyS, tyT) seen ||
+    case (tyS, tyT) of
+      (_, TyTop) -> True
+      (TyUnit, TyUnit) -> True
+      (TyInt, TyInt) -> True
+      (TyBool, TyBool) -> True
+      (TyFreeVar nameS, TyFreeVar nameT) -> nameS == nameT
+      (TyBoundVar idS _, TyBoundVar idT _) | idS == idT -> True
+      (TyBoundVar id _, _) | isAnAlias ctx id ->
+        case resolveAlias ctx id of
+          Ok resolved -> subtype seen ctx resolved tyT
+          Err _ -> False
+      (_, TyBoundVar id _) | isAnAlias ctx id ->
+        case resolveAlias ctx id of
+          Ok resolved -> subtype seen ctx tyS resolved
+          Err _ -> False
+      (TyRec name tyS', _) ->
+        subtype markSeen ctx (tySubstTop tyS tyS') tyT
+      (_, TyRec name tyT') ->
+        subtype markSeen ctx tyS (tySubstTop tyT tyT')
+      (TyFn tySFrom tySTo, TyFn tyTFrom tyTTo) ->
+        subtype seen ctx tyTFrom tySFrom && subtype seen ctx tySTo tyTTo
+      (TyRecord fieldsS, TyRecord fieldsT) ->
+        all (\(nameT, tyT) ->
+          case lookup nameT fieldsS of
+            Nothing -> False
+            Just tyS -> subtype seen ctx tyS tyT
+        ) fieldsT
+      (TyTuple itemsS, TyTuple itemsT) ->
+        length itemsS >= length itemsT &&
+        and (zipWith (subtype seen ctx) itemsS itemsT)
+      (TyVariants variantsS, TyVariants variantsT) ->
+        all (\(nameS, tyS) ->
+          case lookup nameS variantsT of
+            Nothing -> False
+            Just tyT -> subtype seen ctx tyS tyT
+        ) variantsS
+      _ -> False
+    where
+      markSeen = (tyS, tyT) : seen
+
+
 typeof :: Ctx -> Tm -> Typechecked
 
 typeof ctx TmTrue = Ok TyBool
@@ -90,10 +136,10 @@ typeof ctx (TmBoundVar id _) =
     Just (VarBind _ ty) -> Ok ty
     _ -> Err $ UntypeableBind $ indexToName ctx id
 
-typeof ctx (TmAscription tm ty) = do
+typeof ctx (TmAscription tm targetTy) = do
   tmTy <- typeof ctx tm
-  if areEquivalent ctx tmTy ty then Ok ty
-  else Err $ IncompatibleAscription ctx tmTy ty
+  if isSubtype ctx tmTy targetTy then Ok targetTy
+  else Err $ IncompatibleAscription ctx tmTy targetTy
 
 typeof ctx (TmTuple items) = TyTuple <$> traverse (typeof ctx) items
 
@@ -124,7 +170,7 @@ typeof ctx (TmApp funcTm argTm) = do
   argTy <- typeof ctx argTm
   case simplifyTy ctx funcTy of
     TyFn fromTy toTy ->
-      if areEquivalent ctx argTy fromTy then Ok toTy
+      if isSubtype ctx argTy fromTy then Ok toTy
       else Err $ NotApplicable ctx argTy funcTy
     _ -> Err $ NotCallable ctx funcTy
 
