@@ -9,6 +9,8 @@ tyMapOnVar f cutoff ty =
   in case ty of
     TyBoundVar id ctxLen -> f id ctxLen cutoff
     TyRec name def -> TyRec name (walk (cutoff + 1) def)
+    TySome name constr repr -> TySome name (walk cutoff constr) (walk (cutoff + 1) repr)
+    TyAll name constr repr -> TyAll name (walk cutoff constr) (walk (cutoff + 1) repr)
 
     TyFreeVar name -> TyFreeVar name
     TyUnit -> TyUnit
@@ -19,6 +21,7 @@ tyMapOnVar f cutoff ty =
     TyTuple items -> TyTuple $ map (walk cutoff) items
     TyRecord fields -> TyRecord $ map (second (walk cutoff)) fields
     TyVariants variants -> TyVariants $ map (second (walk cutoff)) variants
+
 
 tmMap :: (CtxId -> CtxLen -> Int -> Tm) -> (Int -> Ty -> Ty) -> Int -> Tm -> Tm
 tmMap onVar onType cutoff tm =
@@ -69,10 +72,22 @@ tmMap onVar onType cutoff tm =
     TmLet x t1 t2 ->
       TmLet x (walk cutoff t1) (walk (cutoff + 1) t2)
 
+    TmForAll name constrTy tm ->
+      TmForAll name (onType cutoff constrTy) (walk (cutoff + 1) tm)
+
+    TmConcretised tm ty ->
+      TmConcretised (walk cutoff tm) (onType cutoff ty)
+
+    TmPack ty1 tm ty2 ->
+      TmPack (onType cutoff ty1) (walk cutoff tm) (onType cutoff ty2)
+
+    TmUnpack xTy xTm tm1 tm2 ->
+      TmUnpack xTy xTm (walk cutoff tm1) (walk (cutoff + 2) tm2)
+
 
 tyShiftAbove d = tyMapOnVar
     (\x n cutoff -> 
-      if x >= cutoff then TyBoundVar (x + d) (n + d) 
+      if x >= cutoff then TyBoundVar (x + d) (n + d)
       else TyBoundVar x (n + d))
 
 tmShiftAbove d = tmMap

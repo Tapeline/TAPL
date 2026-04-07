@@ -22,6 +22,17 @@ resolveAlias ctx id = case getBind ctx id of
   _ -> Err $ AliasNotFound ctx id
 
 
+isConstrained ctx id = case getBind ctx id of
+  Just (TyConstrainedBind _ _) -> True
+  _ -> False
+
+
+resolveConstrained ctx id = case getBind ctx id of
+  Just (TyConstrainedBind _ ty) -> Ok ty
+  Just _ -> Err $ NotAConstrainedType $ indexToName ctx id
+  _ -> Err $ ConstrainedTypeNotFound ctx id
+
+
 simplifyTy ctx ty =
   case computeTy ctx ty of
     Err _ -> ty
@@ -72,6 +83,10 @@ areEquivalent ctx tyS tyT = eqv [] ctx tyS tyT where
             Nothing -> False
             Just tyT -> eqv seen ctx tyS tyT
         ) variantsS
+      (TySome name constrS tyS, TySome _ constrT tyT) ->
+        eqv seen ctx constrS constrT && eqv seen (addBind ctx (NameBind name)) tyS tyT
+      (TyAll name constrS tyS, TyAll _ constrT tyT) ->
+        eqv seen ctx constrS constrT && eqv seen (addBind ctx (NameBind name)) tyS tyT
       _ -> False
     where
       markSeen = (tyS, tyT) : seen
@@ -97,6 +112,10 @@ isSubtype ctx tyS tyT = subtype [] ctx tyS tyT where
         case resolveAlias ctx id of
           Ok resolved -> subtype seen ctx tyS resolved
           Err _ -> False
+      (TyBoundVar id _, _) | isConstrained ctx id ->
+        case resolveConstrained ctx id of
+          Ok boundTy -> subtype seen ctx boundTy tyT
+          Err _ -> False
       (TyRec name tyS', _) ->
         subtype markSeen ctx (tySubstTop tyS tyS') tyT
       (_, TyRec name tyT') ->
@@ -118,6 +137,14 @@ isSubtype ctx tyS tyT = subtype [] ctx tyS tyT where
             Nothing -> False
             Just tyT -> subtype seen ctx tyS tyT
         ) variantsS
+      (TySome name constrS tyS, TySome _ constrT tyT) ->
+        isSubtype ctx constrS constrT &&
+        isSubtype ctx tyS tyT &&
+        isSubtype (addBind ctx (TyAliasBind name constrT)) tyS tyT
+      (TyAll name constrS tyS, TyAll _ constrT tyT) ->
+        isSubtype ctx constrS constrT &&
+        isSubtype ctx tyS tyT &&
+        isSubtype (addBind ctx (TyAliasBind name constrT)) tyS tyT
       _ -> False
     where
       markSeen = (tyS, tyT) : seen
@@ -242,3 +269,40 @@ typeof ctx (TmTupleProj tm index) = do
       if length items <= index then Err $ UnknownTupleProj ctx index ty
       else Ok $ items !! index
     _ -> Err $ UnknownTupleProj ctx index ty
+
+typeof ctx (TmPack actualTy implTm existentialTy@(TySome name constrTy quantifiedTy)) =
+  if isSubtype ctx actualTy constrTy then do
+    implTy <- typeof ctx implTm
+    -- substitute exposed abstract type X for actual hidden type
+    let packedTy = tySubstTop actualTy quantifiedTy
+    -- impl should be applicable to declared type
+    if isSubtype ctx implTy packedTy then Ok existentialTy
+    else Err $ NotApplicable ctx packedTy implTy
+  else Err $ ConstraintNotMatched ctx actualTy constrTy
+typeof ctx (TmPack _ _ ty) = Err $ ExpectedExistential ctx ty
+
+typeof ctx (TmUnpack abstractName termName targetTm bodyTm) = do
+  targetTy <- typeof ctx targetTm
+  case targetTy of
+    TySome name constrTy reprTy -> do
+      -- Bind a constrained type alias to abstract type name
+      let ctx' = addBind ctx (TyConstrainedBind abstractName constrTy)
+      -- Bind name to unpacked term
+      let ctx'' = addBind ctx' (VarBind termName reprTy)
+      -- Remove ealier bound type and term name
+      tyShift (-2) <$> typeof ctx'' bodyTm
+    _ -> Err $ ExpectedExistential ctx targetTy
+
+typeof ctx (TmForAll tyName constrTy tm) = do
+  -- Bind a constrained type alias to name in forall
+  let ctx' = addBind ctx (TyConstrainedBind tyName constrTy)
+  quantifiedTy <- typeof ctx' tm
+  Ok $ TyAll tyName constrTy quantifiedTy
+
+typeof ctx (TmConcretised tmWithUniversalTy concreteTy) = do
+  universalTy <- typeof ctx tmWithUniversalTy
+  case simplifyTy ctx universalTy of
+    TyAll _ constrTy quantifiedTy ->
+      if isSubtype ctx concreteTy constrTy then Ok $ tySubstTop concreteTy quantifiedTy
+      else Err $ ConstraintNotMatched ctx concreteTy constrTy
+    _ -> Err $ ExpectedUniveral ctx universalTy

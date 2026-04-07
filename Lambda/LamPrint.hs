@@ -44,6 +44,14 @@ printTy ctx ty = case ty of
     let (ctx', name') = pickFreshName ctx name in
     "μ " ++ name ++ ": " ++ printTy ctx' ty
 
+  TyAll name constrTy ty ->
+    let (ctx', name') = pickFreshName ctx name in
+    "∀" ++ name ++ " <: " ++ printTy ctx constrTy ++ ". " ++ printTy ctx' ty
+
+  TySome name constrTy ty ->
+    let (ctx', name') = pickFreshName ctx name in
+    "∃" ++ name ++ " <: " ++ printTy ctx constrTy ++ ". " ++ printTy ctx' ty
+
   where walk = printTy ctx
 
 printTm :: Ctx -> Tm -> String
@@ -94,6 +102,22 @@ printTm ctx tm = case tm of
       printBranch (MatchAll body) =
         "_ => " ++ walk body
 
+  TmPack reprTy implTm someTy ->
+    "{*" ++ printTy ctx reprTy ++ ", " ++ printTm ctx implTm ++ "} as " ++ printTy ctx someTy
+
+  TmUnpack tyName tmName targetTm usageTm ->
+    let ctx' = addBind ctx (NameBind tyName) in
+    let ctx'' = addBind ctx' (NameBind tmName) in
+    "use " ++ tmName ++ ": " ++ tyName ++
+    " = " ++ printTm ctx targetTm ++ " in " ++ printTm ctx'' usageTm
+
+  TmForAll tyName constrTy quantTm ->
+    let ctx' = addBind ctx (NameBind tyName) in
+    "∀" ++ tyName ++ " <: " ++ printTy ctx constrTy ++ ". " ++ printTm ctx' quantTm
+
+  TmConcretised quantTm concreteTy ->
+    printTm ctx quantTm ++ " concretised for " ++ printTy ctx concreteTy
+
   where walk = printTm ctx
 
 
@@ -102,7 +126,10 @@ instance Show TypeError where
   show (NameNotFound ctx id) = "name not found by index " ++ show id ++ " in " ++ show ctx
   show (UntypeableBind name) = "untypeable bind " ++ name
   show (AliasNotFound ctx id) = "alias not found by index " ++ show id ++ " in " ++ show ctx
+  show (ConstrainedTypeNotFound ctx id) =
+    "constrained type not found by index " ++ show id ++ " in " ++ show ctx
   show (NotATypeAlias name) = name ++ " is not a type alias"
+  show (NotAConstrainedType name) = name ++ " is not a constrained type"
   show (IncompatibleAscription ctx actual attempted) =
     "cannot ascribe " ++ printTy ctx actual ++ " with " ++ printTy ctx attempted
   show (BranchesTypesDiffer ctx tys) = "branches types differ: " ++ intercalate ", " (map (printTy ctx) tys)
@@ -121,3 +148,7 @@ instance Show TypeError where
     "projection " ++ show index ++ " is non-existent in " ++ printTy ctx ty
   show (UnknownCaseTag tag) = "variant " ++ tag ++ " not found"
   show NotImplemented = "this feature is not implemented"
+  show (ExpectedExistential ctx ty) = "expected existential type, but got " ++ printTy ctx ty
+  show (ExpectedUniveral ctx ty) = "expected universal type, but got " ++ printTy ctx ty
+  show (ConstraintNotMatched ctx concrTy constrTy) =
+    printTy ctx concrTy ++ " is not <: " ++ printTy ctx constrTy

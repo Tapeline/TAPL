@@ -16,6 +16,7 @@ type VariantTag = String
 type RecordTag = String
 
 type BindingName = String
+type TyBindingName = String
 
 data Ty
   = TyFreeVar String
@@ -28,7 +29,9 @@ data Ty
   | TyTuple [Ty]
   | TyRecord [(RecordTag, Ty)]
   | TyVariants [(VariantTag, Ty)]
-  | TyRec BindingName Ty
+  | TyRec TyBindingName Ty
+  | TyAll TyBindingName Ty Ty -- A constraint : type
+  | TySome TyBindingName Ty Ty -- E constraint : type
   deriving (Show, Eq)
 
 data Tm
@@ -48,6 +51,30 @@ data Tm
   | TmTagged VariantTag Tm Ty
   | TmRecordProj Tm RecordTag
   | TmTupleProj Tm Int
+
+  -- | Create an existential type construction:
+  -- 1. Ty -- actual (representation) type of an ADT
+  -- 2. Tm -- implementation term of an ADT
+  -- 3. TySome -- ADT's "disguise" type
+  | TmPack Ty Tm Ty
+
+  -- | Unpacking of an existential type:
+  -- 1. String -- local name of abstract type
+  -- 2. String -- local name of abstracted value,
+  -- 3. Tm -- unpacking target
+  -- 4. Tm -- term that uses bound names
+  | TmUnpack TyBindingName BindingName Tm Tm
+
+  -- | Introduce universal (forall) type: `∀ X <: T. t`
+  -- 1. String X -- name
+  -- 2. Ty T -- type bound (hereinafter -- constraint)
+  -- 3. Tm t -- quantified term
+  | TmForAll TyBindingName Ty Tm --
+
+  -- | Concretise universal type
+  -- 1. Tm -- quantified term
+  -- 2. Ty -- concrete type to be substituted
+  | TmConcretised Tm Ty
   deriving (Show)
 
 data CaseBranch
@@ -56,10 +83,16 @@ data CaseBranch
   deriving (Show)
 
 data Bind
+  -- | A free variable
   = NameBind BindingName
+  -- | A bound variable
   | VarBind BindingName Ty
-  | TyVarBind BindingName
-  | TyAliasBind BindingName Ty
+  -- | A free type variable
+  | TyVarBind TyBindingName
+  -- | Alias a type
+  | TyAliasBind TyBindingName Ty
+  -- | Some type that is <: Ty
+  | TyConstrainedBind TyBindingName Ty
   deriving (Show)
 
 type Ctx = [Bind]
@@ -78,12 +111,15 @@ indexToName ctx id =
     Just (NameBind name) -> name
     Just (VarBind name _) -> name
     Just (TyVarBind name) -> name
+    Just (TyConstrainedBind name _) -> name
     Nothing -> Prelude.error "broken context: couldn't find name for var@" ++ show id
 
 data TypeError
   = NameNotFound Ctx CtxId
   | AliasNotFound Ctx CtxId
+  | ConstrainedTypeNotFound Ctx CtxId
   | NotATypeAlias String
+  | NotAConstrainedType String
   | UntypeableBind BindingName
   | IncompatibleAscription Ctx Ty Ty
   | ConditionNotBool Ctx Ty
@@ -97,6 +133,9 @@ data TypeError
   | UnknownTupleProj Ctx Int Ty
   | UnknownCaseTag VariantTag
   | VariantsNotExhausted [VariantTag]
+  | ExpectedExistential Ctx Ty
+  | ExpectedUniveral Ctx Ty
+  | ConstraintNotMatched Ctx Ty Ty
   | NotImplemented
 
 data ParserErrorType
