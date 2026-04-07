@@ -1,8 +1,10 @@
 module Lambda.LamPrint where
 
 import Lambda.LamDef
+import Lambda.LamDeBruijn
 import Data.List (intercalate)
 import GHC.Base (bindIO)
+import Distribution.Simple.Utils (xargs)
 
 isNameBound :: Ctx -> String -> Bool
 isNameBound [] name = False
@@ -92,7 +94,7 @@ printTm ctx tm = case tm of
     "let " ++ x ++ " = " ++ walk t1 ++ " in " ++ printTm (addBind ctx (NameBind x)) t2
 
   TmTagged label t ty ->
-    "<" ++ label ++ "=" ++ walk t ++ "> as " ++ printTy ctx ty
+    "<" ++ label ++ "=" ++ walk t ++ "> : " ++ printTy ctx ty
 
   TmCase t branches ->
     "case " ++ walk t ++ " of " ++ intercalate " | " (map printBranch branches)
@@ -117,6 +119,10 @@ printTm ctx tm = case tm of
 
   TmConcretised quantTm concreteTy ->
     printTm ctx quantTm ++ " concretised for " ++ printTy ctx concreteTy
+
+  TmTyLet name ty tm ->
+    let ctx' = addBind ctx (NameBind name) in
+    "let type " ++ name ++ " = " ++ printTy ctx ty ++ ", " ++ printTm ctx' tm
 
   where walk = printTm ctx
 
@@ -150,5 +156,12 @@ instance Show TypeError where
   show NotImplemented = "this feature is not implemented"
   show (ExpectedExistential ctx ty) = "expected existential type, but got " ++ printTy ctx ty
   show (ExpectedUniveral ctx ty) = "expected universal type, but got " ++ printTy ctx ty
-  show (ConstraintNotMatched ctx concrTy constrTy) =
+  show (NotASubtype ctx concrTy constrTy) =
     printTy ctx concrTy ++ " is not <: " ++ printTy ctx constrTy
+  show (EscapedVar ctx ty) =
+    printTy ctx ty ++ " has bindings that go out of scope"
+
+
+instance Show CompilerError where
+  show (UnboundTypeVar x) = "unbound type var " ++ x
+  show (UnboundVar x) = "unbound var " ++ x

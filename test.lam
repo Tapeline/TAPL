@@ -1,2 +1,10 @@
-let fix = \f: Top -> Top -> Top -> Top. ( \ x: Top -> Top -> Top . f ( \ y: Top . x x y )) ( \ x: Top -> Top -> Top . f ( \ y: Top . x x y )),
-1
+let type NatList = rec L. <nil=Unit, cons=[Int, L]>,
+let nil = <nil=unit> : NatList,
+let cons = λh:Int. λt:NatList. <cons=[h, t]> : NatList,
+let myList = cons 1 (cons 2 nil),
+
+case myList of
+  | nil u -> 0
+  | cons p -> case p.1 of
+                | nil u -> 0
+                | cons p -> p.0

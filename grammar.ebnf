@@ -1,24 +1,37 @@
 expr
-  = "(" expr [ "," expr ] ")"
-  | "[" expr { "," expr } "]"
-  | "{" var "=" expr { "," var "=" expr } "}"
-  | "True"
-  | "False"
-  | "Unit"
-  | "let" var "=" expr ","
+  = "true"
+  | "false"
+  | "unit"
+  | int
   | var
+  | expr "as" type
+  | "[" [ expr ] { "," expr } [ "," ] "]"
+  | "{" [ var "=" expr ] { "," var "=" expr } [ "," ] "}"
+  | "let" var "=" expr "," expr
+  | "let" "type" var "=" expr "," expr
+  | "\\" var ":" type "." expr
   | "if" expr "then" expr "else" expr
-  | "\" var ":" tyDecl "." expr
-  | expr "." number
+  | "case" expr "of" "|" var var "->" expr { "|" var var "->" expr }
+  | "<" var "=" expr ">" ":" type -- tagged
   | expr "." var
-  | expr expr
+  | expr "." int
+  | "{*" var "," expr "}" "as" type -- pack
+  | "use" var ":" var "=" expr "," expr -- unpack
+  | "forall" var "<:" type "." expr
+  | expr "concretised for" type
+  | "succ" expr
+  | expr\ expr
 
-tyDecl
-  = "Bool"
+type
+  = var
   | "Unit"
   | "Top"
-  | "(" tyDecl [ "," tyDecl ] ")"
-  | "[" tyDecl { "," tyDecl } "]"
-  | "{" [ var "=" tyDecl ] { "," var "=" tyDecl } "}"
-  | tyDecl "->" tyDecl
-  | "?"
+  | "Int"
+  | "Bool"
+  | type\ "->" type
+  | "[" [ type ] { "," type } [ "," ] "]"
+  | "{" [ var "=" type ] { "," var "=" type } [ "," ] "}"
+  | "<" [ var "=" type ] { "," var "=" type } [ "," ] ">" -- variants
+  | "rec" var "." type
+  | "forall" var "<:" type "." type -- all
+  | "thereis" var "<:" type "." type -- some

@@ -1,7 +1,9 @@
 module Lambda.LamDef where
 
 import Lambda.LamResults
+
 import Data.Text (Text)
+
 
 a =/= b = a /= b
 
@@ -44,6 +46,7 @@ data Tm
   | TmTuple [Tm]
   | TmRecord [(RecordTag, Tm)]
   | TmLet BindingName Tm Tm
+  | TmTyLet BindingName Ty Tm
   | TmFn String Ty Tm
   | TmIf Tm Tm Tm
   | TmApp Tm Tm
@@ -51,6 +54,7 @@ data Tm
   | TmTagged VariantTag Tm Ty
   | TmRecordProj Tm RecordTag
   | TmTupleProj Tm Int
+  | TmSucc Tm
 
   -- | Create an existential type construction:
   -- 1. Ty -- actual (representation) type of an ADT
@@ -97,23 +101,6 @@ data Bind
 
 type Ctx = [Bind]
 
-addBind :: Ctx -> Bind -> Ctx
-addBind ctx bind = bind : ctx
-
-getBind :: Ctx -> Int -> Maybe Bind
-getBind [] index = Nothing
-getBind (x : _) 0 = Just x
-getBind (_ : rest) index = getBind rest (index - 1)
-
-indexToName :: Ctx -> Int -> String
-indexToName ctx id =
-  case getBind ctx id of
-    Just (NameBind name) -> name
-    Just (VarBind name _) -> name
-    Just (TyVarBind name) -> name
-    Just (TyConstrainedBind name _) -> name
-    Nothing -> Prelude.error "broken context: couldn't find name for var@" ++ show id
-
 data TypeError
   = NameNotFound Ctx CtxId
   | AliasNotFound Ctx CtxId
@@ -135,13 +122,15 @@ data TypeError
   | VariantsNotExhausted [VariantTag]
   | ExpectedExistential Ctx Ty
   | ExpectedUniveral Ctx Ty
-  | ConstraintNotMatched Ctx Ty Ty
+  | NotASubtype Ctx Ty Ty
+  | EscapedVar Ctx Ty
   | NotImplemented
 
 data ParserErrorType
   = ExpectedButGot String String
   | ParsingFailed
   | EmptyInput
+  deriving (Show)
 
 data ParserState = ParserState
   { input :: Text
@@ -160,15 +149,23 @@ data Expr
   | EAbs String TypeExpr Expr
   | EApp Expr Expr
   | ELet String Expr Expr
+  | EUse String String Expr Expr
   | EIf Expr Expr Expr
   | EBool String
   | EUnit
   | ETuple [Expr]
   | ERecord [(String, Expr)]
-  | EPair Expr Expr
   | EProj Expr Int
   | EField Expr String
   | EInt Int
+  | EAscription Expr TypeExpr
+  | ECases Expr [(String, String, Expr)]
+  | ETagged Expr String TypeExpr
+  | EPack TypeExpr Expr TypeExpr
+  | EForAll String TypeExpr Expr
+  | EConcretised Expr TypeExpr
+  | ESucc Expr
+  | ETypeLet String TypeExpr Expr
   deriving (Show)
 
 data TypeExpr
@@ -176,11 +173,26 @@ data TypeExpr
   | TeInt
   | TeTop
   | TeUnit
-  | TePair TypeExpr TypeExpr
   | TeTuple [TypeExpr]
   | TeRecord [(String, TypeExpr)]
   | TeAbs TypeExpr TypeExpr
-  | TeUnknown
+  | TeVariants [(String, TypeExpr)]
+  | TeRec String TypeExpr
+  | TeAll String TypeExpr TypeExpr
+  | TeSome String TypeExpr TypeExpr
+  | TeVar String
   deriving (Show)
 
 type Parsed a = Result ParserError (ParserState, a)
+
+data CompilerError
+  = UnboundVar String
+  | UnboundTypeVar String
+
+type Compiled a = Result CompilerError a
+
+data RuntimeError
+  = NoRuleApplies
+  deriving (Show, Eq)
+
+type Evaluated a = Result RuntimeError a

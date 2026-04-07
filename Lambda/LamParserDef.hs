@@ -96,11 +96,11 @@ pSpanOf predicate = Parser $ \state ->
         finalState = newState { input = rest }
     in Ok (finalState, consumed)
 
-pNonEmptySpanOf :: (Char -> Bool) -> String -> Parser T.Text
-pNonEmptySpanOf predicate expectedMsg = Parser $ \state ->
+pNonEmptySpanOf :: (Char -> Bool) -> Parser T.Text
+pNonEmptySpanOf predicate = Parser $ \state ->
     let (consumed, rest) = T.span predicate (input state)
     in if T.null consumed
-       then raise state (ExpectedButGot expectedMsg "nothing")
+       then raise state (ExpectedButGot "something" "nothing")
        else let newState = incStateByText state consumed
                 finalState = newState { input = rest }
             in Ok (finalState, consumed)

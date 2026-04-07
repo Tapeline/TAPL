@@ -84,6 +84,11 @@ tmMap onVar onType cutoff tm =
     TmUnpack xTy xTm tm1 tm2 ->
       TmUnpack xTy xTm (walk cutoff tm1) (walk (cutoff + 2) tm2)
 
+    TmSucc tm -> TmSucc (walk cutoff tm)
+
+    TmTyLet name ty body ->
+      TmTyLet name (onType cutoff ty) (walk (cutoff + 1) body)
+
 
 tyShiftAbove d = tyMapOnVar
     (\x n cutoff -> 
@@ -97,13 +102,6 @@ tmShiftAbove d = tmMap
 tmShift d = tmShiftAbove d 0
 
 tyShift d = tyShiftAbove d 0
-
-bindingShift d bind =
-  case bind of
-    NameBind name -> NameBind name
-    VarBind name ty -> VarBind name (tyShift d ty)
-    TyVarBind name -> TyVarBind name
-    TyAliasBind name ty -> TyAliasBind name (tyShift d ty)
 
 -- | Substitute term `s` for the variable with index `j` in term `t`.
 tmSubst j s = tmMap
@@ -134,3 +132,34 @@ tytmSubst tyS = tmMap
 -- | Substitute type `tyS` for type index 0 in term `t` and shift down by 1
 tytmSubstTop tyS t =
   tmShift (-1) (tytmSubst (tyShift 1 tyS) 0 t)
+
+bindingShift :: Int -> Bind -> Bind
+bindingShift d bind =
+  case bind of
+    NameBind name -> NameBind name
+    VarBind name ty -> VarBind name (tyShift d ty)
+    TyVarBind name -> TyVarBind name
+    TyAliasBind name ty -> TyAliasBind name (tyShift d ty)
+    TyConstrainedBind name ty -> TyConstrainedBind name (tyShift d ty) -- if you have this
+
+addBind :: Ctx -> Bind -> Ctx
+addBind ctx bind = bind : ctx
+
+getBind :: Ctx -> Int -> Maybe Bind
+getBind ctx originalIndex =
+  let walk [] _ = Nothing
+      walk (x : _) 0 = Just x
+      walk (_ : rest) i = walk rest (i - 1)
+  in case walk ctx originalIndex of
+       Nothing -> Nothing
+       Just rawBind -> Just (bindingShift (originalIndex + 1) rawBind)
+
+indexToName :: Ctx -> Int -> String
+indexToName ctx id =
+  case getBind ctx id of
+    Just (NameBind name) -> name
+    Just (VarBind name _) -> name
+    Just (TyVarBind name) -> name
+    Just (TyAliasBind name _) -> name
+    Just (TyConstrainedBind name _) -> name
+    Nothing -> Prelude.error "broken context: couldn't find name for var@" ++ show id

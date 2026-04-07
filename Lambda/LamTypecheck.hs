@@ -179,10 +179,11 @@ typeof ctx (TmRecord fields) =
 
 typeof ctx (TmLet binding def inTm) = do
   defTy <- typeof ctx def
-  typeof (addBind ctx (VarBind binding defTy)) inTm
+  tyShift (-1) <$> typeof (addBind ctx (VarBind binding defTy)) inTm
 
-typeof ctx (TmFn binding argTy body) =
-  TyFn argTy <$> typeof (addBind ctx (VarBind binding argTy)) body
+typeof ctx (TmFn binding argTy body) = do
+  bodyTy <- typeof (addBind ctx (VarBind binding argTy)) body
+  Ok $ TyFn argTy (tyShift (-1) bodyTy)
 
 typeof ctx (TmIf condTm thenTm elseTm) = do
   condTy <- typeof ctx condTm
@@ -211,7 +212,9 @@ typeof ctx (TmCase tm cases) = do
         Ok returnTy
       where
         assertCasesExhausted =
-          if any (\(MatchAll _) -> True) cases then Ok () else
+          if any (\branch -> case branch of
+            (MatchAll _) -> True
+            _ -> False) cases then Ok () else
           case nonConveredTags of
             [] -> Ok ()
             _ -> Err $ VariantsNotExhausted nonConveredTags
@@ -278,7 +281,7 @@ typeof ctx (TmPack actualTy implTm existentialTy@(TySome name constrTy quantifie
     -- impl should be applicable to declared type
     if isSubtype ctx implTy packedTy then Ok existentialTy
     else Err $ NotApplicable ctx packedTy implTy
-  else Err $ ConstraintNotMatched ctx actualTy constrTy
+  else Err $ NotASubtype ctx actualTy constrTy
 typeof ctx (TmPack _ _ ty) = Err $ ExpectedExistential ctx ty
 
 typeof ctx (TmUnpack abstractName termName targetTm bodyTm) = do
@@ -290,7 +293,9 @@ typeof ctx (TmUnpack abstractName termName targetTm bodyTm) = do
       -- Bind name to unpacked term
       let ctx'' = addBind ctx' (VarBind termName reprTy)
       -- Remove ealier bound type and term name
-      tyShift (-2) <$> typeof ctx'' bodyTm
+      bodyTy <- typeof ctx'' bodyTm
+      if hasEscapingVars 2 bodyTy then Err $ EscapedVar ctx'' bodyTy
+      else Ok $ tyShift (-2) bodyTy
     _ -> Err $ ExpectedExistential ctx targetTy
 
 typeof ctx (TmForAll tyName constrTy tm) = do
@@ -304,5 +309,29 @@ typeof ctx (TmConcretised tmWithUniversalTy concreteTy) = do
   case simplifyTy ctx universalTy of
     TyAll _ constrTy quantifiedTy ->
       if isSubtype ctx concreteTy constrTy then Ok $ tySubstTop concreteTy quantifiedTy
-      else Err $ ConstraintNotMatched ctx concreteTy constrTy
+      else Err $ NotASubtype ctx concreteTy constrTy
     _ -> Err $ ExpectedUniveral ctx universalTy
+
+typeof ctx (TmSucc tm) = do
+  ty <- typeof ctx tm
+  if isSubtype ctx ty TyInt then Ok ty
+  else Err $ NotASubtype ctx ty TyInt
+
+typeof ctx (TmTyLet name ty bodyTm) = do
+  let ctx' = addBind ctx (TyAliasBind name ty)
+  bodyTy <- typeof ctx' bodyTm
+  Ok $ tySubstTop ty bodyTy
+
+-- | Check if a type contains less deep than specified depth
+hasEscapingVars depth ty = walk 0 ty
+  where
+    walk c tyNode = case tyNode of
+      TyBoundVar id _ -> id >= c && id < c + depth
+      TyRec _ t -> walk (c + 1) t
+      TyAll _ constrTy t -> walk c constrTy || walk (c + 1) t
+      TySome _ constrTy t -> walk c constrTy || walk (c + 1) t
+      TyFn from to -> walk c from || walk c to
+      TyTuple items -> any (walk c) items
+      TyRecord fields -> any (walk c . snd) fields
+      TyVariants variants -> any (walk c . snd) variants
+      _ -> False

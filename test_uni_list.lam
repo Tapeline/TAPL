@@ -1,0 +1,11 @@
+let nil  = forall T <: Top.
+  <nil=unit> : rec L. <nil=Unit, cons=[T, L]>,
+let cons = forall T <: Top.
+  \h:T. \t:(rec L. <nil=Unit, cons=[T, L]>). (<cons=[h, t]> : (rec L. <nil=Unit, cons=[T, L]>)),
+let iNil = nil concretised for Int,
+let iCons = cons concretised for Int,
+let myList = iCons 1 (iCons 2 iNil),
+
+case myList of
+  | nil u -> 0
+  | cons p -> p.0
